@@ -1,0 +1,26 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Game"
+run/main_scene="res://main.tscn"
+run/main_loop_type="GoMainLoop"
+
+[gd]
+
+build/mode="libgodot"
+engine/repository="https://github.com/godotengine/godot"
+engine/ref="4.7.2-stable"
+
+[rendering]
+
+rendering_device/driver.macos="metal"
+shader_compiler/shader_cache/enabled.debug=false
