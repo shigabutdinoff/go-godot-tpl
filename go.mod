@@ -32,7 +32,7 @@ require (
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect
-	graphics.gd v0.0.0-20261109055115-ea818be6cab0 // indirect
+	graphics.gd v0.0.0-20261117040540-3b822ee9ca88 // indirect
 	honnef.co/go/tools v0.8.2 // indirect
 	rsc.io/qr v0.2.0 // indirect
 	runtime.link v0.0.0-20260715222822-244f867873e6 // indirect
