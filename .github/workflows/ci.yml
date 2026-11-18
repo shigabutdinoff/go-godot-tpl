@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels its previous run. Every master commit is checked to the end.
+# Called from release, github.workflow is "release": its CI never cancels or is cancelled by this one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
 jobs:
   check:
     strategy:
