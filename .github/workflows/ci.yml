@@ -1,9 +1,11 @@
 name: ci
 
 on:
-  # Branches are checked in their pull request; master after the merge, which also fills the shared cache.
+  # Code is checked in its pull request. On master CI runs only to fill the cache that every branch reads:
+  # its keys follow go.sum and the Go version in go.mod.
   push:
     branches: [master]
+    paths: [go.mod, go.sum]
   pull_request:
   # release runs CI on its commit before building.
   workflow_call:
