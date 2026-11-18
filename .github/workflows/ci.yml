@@ -98,4 +98,8 @@ jobs:
         with:
           key: libgodot-ubuntu-24.04-${{ hashFiles('go.sum') }}
           path: ~/.cache/go-godot-kit
-      - run: go run ./cmd/game -- --headless --quit
+      # The game is cmd/<name>: a game made from the template renames cmd/game.
+      - run: |
+          set -- cmd/*/graphics/project.godot
+          [ $# -eq 1 ] && [ -e "$1" ] || { echo "expected exactly one cmd/<name>/graphics" >&2; exit 1; }
+          go run "./${1%/graphics/project.godot}" -- --headless --quit
