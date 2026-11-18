@@ -23,7 +23,7 @@ jobs:
   check:
     strategy:
       matrix:
-        runner: [macos-15, macos-15-intel, ubuntu-24.04, ubuntu-24.04-arm, windows-2025, windows-11-arm]
+        runner: [macos-26, macos-15-intel, ubuntu-24.04, ubuntu-24.04-arm, windows-2025, windows-11-arm]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     # The gcc on the windows-11-arm PATH is x86_64 mingw: it cannot build runtime/cgo for arm64.
@@ -42,11 +42,11 @@ jobs:
       - run: go test ${{ matrix.runner != 'windows-11-arm' && '-race' || '' }} -coverprofile=coverage.out ./...
       # Every runner lints its own GOOS files; the release files (tag archive or musl) are linted once.
       - run: go tool staticlint ./...
-      - if: matrix.runner == 'macos-15'
+      - if: matrix.runner == 'macos-26'
         run: go tool staticlint ./...
         env:
           GOFLAGS: -tags=archive
-      - if: matrix.runner == 'macos-15'
+      - if: matrix.runner == 'macos-26'
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9
         with:
           version: v2.15.0
@@ -59,7 +59,7 @@ jobs:
             /^total:/ { found = 1; sub("%", "", $3); print "coverage " $3 "%, minimum " min "%"; if ($3 + 0 < min + 0) exit 1 }
             END { if (!found) { print "no total line in the coverage report"; exit 1 } }'
       # Windows files without cgo, cross-compiled from macOS.
-      - if: matrix.runner == 'macos-15'
+      - if: matrix.runner == 'macos-26'
         run: GOOS=windows go vet ./... && GOOS=windows go build -o /dev/null ./...
       # Known vulnerabilities in go.mod/go.sum. Pinned to v0.36.0, released after the March 2026 tag hijack.
       - if: matrix.runner == 'ubuntu-24.04'
@@ -71,7 +71,7 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: 1
       - name: generated code is up to date
-        if: matrix.runner == 'macos-15'
+        if: matrix.runner == 'macos-26'
         run: go generate ./... && test -z "$(git status --porcelain)"
 
   # The engine starts the scene and quits: catches a broken graphics/ or LibGodot link that unit tests miss.
