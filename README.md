@@ -78,7 +78,7 @@ git tag v1.2.3 && git push origin v1.2.3   # then run "release" on the tag
 
 The release stays a draft until every archive is uploaded. A rerun after a failed run replaces the draft's archives; a rerun on a published release fails, because a published version never changes. Tag a new one instead. To roll back, download the previous version from the Releases page.
 
-`gd build` embeds the engine and the scene. The archives are `game-<version>-<os>-<arch>` for macOS (`.app`: universal, arm64 and amd64), Linux (musl) and Windows, each with a `.sha256`. The version, date and commit go in through `-ldflags "-X main.buildVersion=…"` and are printed at start. Every built binary is started with `-version` and must print the release version.
+`gd build` embeds the engine and the scene. The archives are `game-<version>-<os>-<arch>` for macOS (`.app`: universal, arm64 and amd64), Linux (musl) and Windows, each with a `.sha256`. The version, date and commit go in through `-ldflags "-X main.buildVersion=…"` and are printed at start. macOS amd64 is built on the arm64 runner and Windows arm64 on the amd64 one: gd's LLVM has no download for the other two hosts. Every built binary is started with `-version` and must print the release version, except Windows arm64, which an amd64 runner cannot run.
 
 That check does not start the engine: graphics.gd drops `--headless` from a release's arguments. A broken scene in a release is caught only by the CI `engine` job, which runs the development build.
 
