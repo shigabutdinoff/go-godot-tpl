@@ -12,6 +12,8 @@ jobs:
   # A release is built only from a commit that passes CI.
   ci:
     uses: ./.github/workflows/ci.yml
+    with:
+      all-platforms: true
 
   build:
     needs: ci
@@ -21,15 +23,17 @@ jobs:
       matrix:
         include:
           # gd builds a universal .app by default; GOARCH narrows it down to one architecture.
-          - { runner: macos-15, goarchs: universal arm64 }
-          - { runner: macos-15-intel, goarchs: amd64 }
+          # gd cross-compiles macOS and Windows with zig and an LLVM it downloads for the host, which
+          # release.graphics.gd has no build of for darwin/amd64 and windows/arm64: those two targets are
+          # built on the other architecture's runner.
+          - { runner: macos-15, goarchs: universal arm64 amd64 }
           - { runner: ubuntu-24.04, goarchs: amd64 }
           - { runner: ubuntu-24.04-arm, goarchs: arm64 }
-          - { runner: windows-2025, goarchs: amd64 }
-          - { runner: windows-11-arm, goarchs: arm64 }
+          - { runner: windows-2025, goarchs: amd64 arm64 }
     runs-on: ${{ matrix.runner }}
-    # A cold engine build takes up to an hour; a hung clone or scons must not hold the runner for 6 hours.
-    timeout-minutes: 120
+    # A cold engine build takes up to an hour (windows-2025 builds two); a hung clone or scons must not
+    # hold the runner for 6 hours.
+    timeout-minutes: 180
     defaults:
       run:
         shell: bash
@@ -51,10 +55,12 @@ jobs:
           fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
       # gd keeps its tools (zig, LLVM, Python, scons, the Godot editor) and the built engine in ~/gd.
+      # A failed build leaves a partial cache for the next run to go on from (see the save steps below).
       - id: cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           key: gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}
+          restore-keys: gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}-partial-
           path: ~/gd
       # With vulkan=yes in engine/options gd links MoltenVK into the .app. Homebrew's has only the
       # runner's architecture, the universal .app needs both: the release goes where gd and scons look.
@@ -77,12 +83,25 @@ jobs:
           ldflags="-s -w -X main.buildVersion=$VERSION -X main.buildDate=$(date -u +%FT%TZ) -X main.buildCommit=$(git rev-parse --short HEAD)"
           releases=$PWD/cmd/$NAME/releases
           mkdir dist
+          # gd is built once for the runner: GOARCH=arm64 go tool gd would build gd itself for arm64,
+          # which an x64 Windows cannot start.
+          GD_BIN=$(go tool -n gd)
+          export GD_BIN GD_LDFLAGS=$ldflags
+          gd() {
+            if [ "$RUNNER_OS" = Windows ]; then
+              # Under the runner's MSYSTEM (UCRT64) Godot's SCons allows only an x86_64 engine. bash's unset
+              # did not keep it from SCons: PowerShell drops it before starting gd.
+              pwsh -NoProfile -Command 'Remove-Item Env:MSYSTEM -ErrorAction Ignore; & $env:GD_BIN build -ldflags $env:GD_LDFLAGS; exit $LASTEXITCODE'
+            else
+              "$GD_BIN" build -ldflags "$GD_LDFLAGS"
+            fi
+          }
           for goarch in $GOARCHS; do
             archive=$PWD/dist/$NAME-$VERSION-$(go env GOOS)-$goarch
             if [ "$goarch" = universal ]; then
-              (cd "cmd/$NAME" && go tool gd build -ldflags "$ldflags")
+              (cd "cmd/$NAME" && gd)
             else
-              (cd "cmd/$NAME" && GOARCH=$goarch go tool gd build -ldflags "$ldflags")
+              (cd "cmd/$NAME" && GOARCH=$goarch gd)
             fi
             case "$RUNNER_OS" in
               macOS)
@@ -102,9 +121,14 @@ jobs:
             esac
             # The release starts on its OS and carries its version. -version exits before the engine starts:
             # graphics.gd strips --headless from a release's arguments, so -- --headless --quit would open a window.
-            got=$("$bin" -version)
-            got=${got%%$'\n'*}
-            [ "$got" = "Build version: $VERSION" ] || { echo "$bin -version: got \"$got\"" >&2; exit 1; }
+            # macOS runs amd64 through Rosetta; an x64 Windows cannot run arm64.
+            if [ "$RUNNER_OS" = Windows ] && [ "$goarch" != "$(go env GOHOSTARCH)" ]; then
+              echo "skipping -version: windows/$goarch does not run on $(go env GOHOSTARCH)"
+            else
+              got=$("$bin" -version)
+              got=${got%%$'\n'*}
+              [ "$got" = "Build version: $VERSION" ] || { echo "$bin -version: got \"$got\"" >&2; exit 1; }
+            fi
             (cd dist && { sha256sum "${archive##*/}" 2>/dev/null || shasum -a 256 "${archive##*/}"; } > "${archive##*/}.sha256")
           done
           ls -l dist
@@ -113,15 +137,54 @@ jobs:
         with:
           key: gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}
           path: ~/gd
+      # A cache key never changes once saved: a failed build saved under the main key would keep a later
+      # successful one from saving the whole engine, so it goes under a key of its own.
+      - if: failure() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          key: gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}-partial-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ~/gd
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: ${{ steps.meta.outputs.name }}-${{ steps.meta.outputs.version }}-${{ matrix.runner }}
           path: dist/*
           if-no-files-found: error
 
+  # The engine starts the scene and quits: catches a broken graphics/ or LibGodot link that unit tests miss.
+  # A release starts the engine only this way (it drops --headless). It is not in CI, where a cold LibGodot
+  # build would hold a pull request: it runs alongside the builds, and the release waits for it.
+  engine:
+    runs-on: ubuntu-24.04
+    # A cold LibGodot build takes up to an hour, later runs take it from the cache.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+      # go tool libgodot keeps Godot sources and LibGodot in the user cache; the key follows the kit version.
+      - id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          key: libgodot-ubuntu-24.04-${{ hashFiles('go.sum') }}
+          path: ~/.cache/go-godot-kit
+      # scons pinned: the LibGodot build must not change with the runner image.
+      - run: pipx install scons==4.11.1
+      - run: go tool libgodot
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          key: libgodot-ubuntu-24.04-${{ hashFiles('go.sum') }}
+          path: ~/.cache/go-godot-kit
+      # The game is cmd/<name>: a game made from the template renames cmd/game.
+      - run: |
+          set -- cmd/*/graphics/project.godot
+          [ $# -eq 1 ] && [ -e "$1" ] || { echo "expected exactly one cmd/<name>/graphics" >&2; exit 1; }
+          go run "./${1%/graphics/project.godot}" -- --headless --quit
+
   release:
     if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
-    needs: build
+    needs: [build, engine]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
