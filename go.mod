@@ -3,7 +3,7 @@ module github.com/shigabutdinoff/go-godot-tpl
 go 1.27.3
 
 require (
-	github.com/shigabutdinoff/go-godot-kit v0.1.0
+	github.com/shigabutdinoff/go-godot-kit v0.1.1
 	github.com/stretchr/testify v1.12.1
 )
 
@@ -32,7 +32,7 @@ require (
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect
-	graphics.gd v0.0.0-20261117040540-3b822ee9ca88 // indirect
+	graphics.gd v0.0.0-20261124051453-80534e52f447 // indirect
 	honnef.co/go/tools v0.8.2 // indirect
 	rsc.io/qr v0.2.0 // indirect
 	runtime.link v0.0.0-20260715222822-244f867873e6 // indirect

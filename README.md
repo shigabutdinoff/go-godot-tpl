@@ -34,7 +34,7 @@ go generate ./... && test -z "$(git status --porcelain)"   # generated code is u
 go run ./cmd/game -- --headless --quit             # the engine starts the scene and exits with 0, needs lib/
 ```
 
-[CI](.github/workflows/ci.yml) runs them on macOS, Linux and Windows, arm64 and amd64, requires 70% coverage (the `COVERAGE_MIN` repository variable) and scans `go.mod` for known vulnerabilities with Trivy. A separate Linux job builds LibGodot, cached by `go.sum`, and starts the engine headless.
+[CI](.github/workflows/ci.yml) runs them on macOS, Linux and Windows, arm64 and amd64, requires 70% coverage (the `COVERAGE_MIN` repository variable) and scans `go.mod` for known vulnerabilities with Trivy.
 
 `go generate` runs `go tool reset`, which writes `Reset()` methods for structs marked `// generate:reset`. The template has none yet, so it writes nothing. `staticlint` (go vet passes, staticcheck, errcheck, ineffassign and a check against `os.Exit` in `main`) and `reset` live in go-godot-kit and come in through the `tool` directives in `go.mod`, so every game on the kit shares one copy. `staticcheck.conf` holds the course's staticcheck settings; golangci-lint reads its copy in `.golangci.yml`.
 
@@ -78,9 +78,9 @@ git tag v1.2.3 && git push origin v1.2.3   # then run "release" on the tag
 
 The release stays a draft until every archive is uploaded. A rerun after a failed run replaces the draft's archives; a rerun on a published release fails, because a published version never changes. Tag a new one instead. To roll back, download the previous version from the Releases page.
 
-`gd build` embeds the engine and the scene. The archives are `game-<version>-<os>-<arch>` for macOS (`.app`: universal, arm64 and amd64), Linux (musl) and Windows, each with a `.sha256`. The version, date and commit go in through `-ldflags "-X main.buildVersion=…"` and are printed at start. Every built binary is started with `-version` and must print the release version.
+`gd build` embeds the engine and the scene. The archives are `game-<version>-<os>-<arch>` for macOS (`.app`: universal, arm64 and amd64), Linux (musl) and Windows, each with a `.sha256`. The version, date and commit go in through `-ldflags "-X main.buildVersion=…"` and are printed at start. macOS amd64 is built on the arm64 runner and Windows arm64 on the amd64 one: gd's LLVM has no download for the other two hosts. Every built binary is started with `-version` and must print the release version, except Windows arm64, which an amd64 runner cannot run.
 
-That check does not start the engine: graphics.gd drops `--headless` from a release's arguments. A broken scene in a release is caught only by the CI `engine` job, which runs the development build.
+That check does not start the engine: graphics.gd drops `--headless` from a release's arguments. The release workflow's `engine` job catches a broken scene instead: on Linux it builds LibGodot (up to an hour, then cached by `go.sum`), starts the development build headless, and the release is published only if it passes. Pull requests do not run it, so their CI takes minutes.
 
 ## Configuration
 
