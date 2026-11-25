@@ -1,9 +1,15 @@
 name: release
 
-# Runs on request from the Actions tab: on a branch (for a pull request) the archives are run artifacts,
-# on a v* tag they are also published as a GitHub Release.
+# Runs on request from the Actions tab on the chosen branch and publishes its commit as a GitHub Release of the
+# given version, tagging it. Run on master, it leaves the engine cache to every later release: a cache saved on a
+# tag would serve only that tag.
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer version vX.Y.Z (vX.Y.Z-rc.N is a prerelease)
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -44,16 +50,21 @@ jobs:
           go-version-file: go.mod
       - name: name and version
         id: meta
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
           set -- cmd/*/graphics/project.godot
           [ $# -eq 1 ] && [ -e "$1" ] || { echo "expected exactly one cmd/<name>/graphics" >&2; exit 1; }
           echo "name=$(basename "$(dirname "$(dirname "$1")")")" >> "$GITHUB_OUTPUT"
-          if [ "$GITHUB_REF_TYPE" = tag ]; then v=$GITHUB_REF_NAME; else v=dev-$(git rev-parse --short HEAD); fi
-          # A tag is a SemVer version: v1.2.3 or v1.2.3-rc.1.
-          if [ "$GITHUB_REF_TYPE" = tag ] && ! echo "$v" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'; then
-            echo "tag $v is not a SemVer version vX.Y.Z" >&2; exit 1
+          # A version is SemVer: v1.2.3 or v1.2.3-rc.1.
+          if ! echo "$VERSION" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'; then
+            echo "version $VERSION is not a SemVer version vX.Y.Z" >&2; exit 1
           fi
-          echo "version=$v" >> "$GITHUB_OUTPUT"
+          # The tag appears when the release is published: an existing one means the version is out.
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then
+            echo "version $VERSION is already released; give a new one" >&2; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       # gd keeps its tools (zig, LLVM, Python, scons, the Godot editor) and the built engine in ~/gd.
       # A failed build leaves a partial cache for the next run to go on from (see the save steps below).
       - id: cache
@@ -183,7 +194,6 @@ jobs:
           go run "./${1%/graphics/project.godot}" -- --headless --quit
 
   release:
-    if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     needs: [build, engine]
     runs-on: ubuntu-24.04
     permissions:
@@ -196,17 +206,20 @@ jobs:
       - name: GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        # The release is a draft until every asset is uploaded: a rerun after a failed run replaces the draft's
-        # assets, but a published release never changes. A tag with a suffix (v1.2.3-rc.1) is a prerelease,
-        # so it never becomes Latest.
+          VERSION: ${{ inputs.version }}
+        # The release is a draft until every asset is uploaded, and its tag is made on this commit when it is
+        # published: a rerun after a failed run replaces the draft's assets, but a published release never changes.
+        # A version with a suffix (v1.2.3-rc.1) is a prerelease, so it never becomes Latest.
         run: |
-          tag=$GITHUB_REF_NAME
+          tag=$VERSION
           export GH_REPO=$GITHUB_REPOSITORY
           pre=; case "$tag" in *-*) pre=--prerelease ;; esac
           if draft=$(gh release view "$tag" --json isDraft -q .isDraft 2>/dev/null); then
-            [ "$draft" = true ] || { echo "release $tag is already published; tag a new version" >&2; exit 1; }
+            [ "$draft" = true ] || { echo "release $tag is already published; give a new version" >&2; exit 1; }
+            # A draft left by a run on another commit is moved to this one.
+            gh release edit "$tag" --target "$GITHUB_SHA"
             gh release upload "$tag" --clobber dist/*
           else
-            gh release create "$tag" --draft $pre --verify-tag --title "$tag" dist/*
+            gh release create "$tag" --draft $pre --target "$GITHUB_SHA" --title "$tag" dist/*
           fi
           gh release edit "$tag" --draft=false
