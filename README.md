@@ -74,7 +74,10 @@ Run the **release** workflow from the Actions tab on `master` with a version: a 
 
 ```shell
 gh workflow run release.yml --ref master -f version=v1.2.3
+gh workflow run release.yml --ref master -f version=v1.2.4 -f linux-arm64=false -f windows-arm64=false
 ```
+
+Each of the seven archives has its own tick: `darwin-universal`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, `linux-arm64`, `windows-amd64`, `windows-arm64`. All are ticked by default. Only the ticked ones are built and published, and only their runners start, CI's included: macOS on macos-26 (arm64, universal) and macos-15-intel (amd64, universal), the others on the runner of their OS and architecture. CI's ubuntu-24.04 with the linters and the `engine` job run every time. With nothing ticked the run fails at once, before CI and the builds start.
 
 Run it on `master`: the engine cache it saves serves every later release, while a cache saved elsewhere serves only that branch. GitHub drops a cache unused for 7 days, so a release after a longer pause builds the engine anew, up to an hour.
 
