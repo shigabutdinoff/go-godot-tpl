@@ -70,13 +70,15 @@ Rename `cmd/game` and change `Name` and `EnvPrefix` in `main.go`. The release wo
 
 ### Release builds
 
-Run the **release** workflow from the Actions tab. It runs CI on the commit first and builds only if CI passes. On a branch it uploads the archives as run artifacts. On a SemVer tag `vX.Y.Z` it also publishes a GitHub Release; `vX.Y.Z-rc.1` becomes a prerelease that never turns Latest, and any other tag fails the build:
+Run the **release** workflow from the Actions tab on `master` with a version: a SemVer `vX.Y.Z`, or `vX.Y.Z-rc.1` for a prerelease that never turns Latest; any other value, or a version already released, fails at once. It runs CI on the commit first, builds only if CI passes, then publishes a GitHub Release and tags the commit with the version:
 
 ```shell
-git tag v1.2.3 && git push origin v1.2.3   # then run "release" on the tag
+gh workflow run release.yml --ref master -f version=v1.2.3
 ```
 
-The release stays a draft until every archive is uploaded. A rerun after a failed run replaces the draft's archives; a rerun on a published release fails, because a published version never changes. Tag a new one instead. To roll back, download the previous version from the Releases page.
+Run it on `master`: the engine cache it saves serves every later release, while a cache saved elsewhere serves only that branch. GitHub drops a cache unused for 7 days, so a release after a longer pause builds the engine anew, up to an hour.
+
+The release stays a draft until every archive is uploaded. A rerun after a failed run replaces the draft's archives; a published version never changes, so a fix goes out under a new version. To roll back, download the previous version from the Releases page.
 
 `gd build` embeds the engine and the scene. The archives are `game-<version>-<os>-<arch>` for macOS (`.app`: universal, arm64 and amd64), Linux (musl) and Windows, each with a `.sha256`. The version, date and commit go in through `-ldflags "-X main.buildVersion=…"` and are printed at start. macOS amd64 is built on the arm64 runner and Windows arm64 on the amd64 one: gd's LLVM has no download for the other two hosts. Every built binary is started with `-version` and must print the release version, except Windows arm64, which an amd64 runner cannot run.
 
