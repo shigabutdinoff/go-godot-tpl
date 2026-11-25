@@ -74,7 +74,10 @@ go run ./cmd/game -- --verbose  # аргументы Godot идут после -
 
 ```shell
 gh workflow run release.yml --ref master -f version=v1.2.3
+gh workflow run release.yml --ref master -f version=v1.2.4 -f linux-arm64=false -f windows-arm64=false
 ```
+
+У каждого из семи архивов своя галка: `darwin-universal`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, `linux-arm64`, `windows-amd64`, `windows-arm64`. По умолчанию отмечены все. Собираются и публикуются только отмеченные, и запускаются только их раннеры, включая раннеры CI: macOS проверяется на macos-26 (arm64, universal) и macos-15-intel (amd64, universal), остальные — на раннере своей ОС и архитектуры. Раннер CI ubuntu-24.04 с линтерами и задача `engine` идут всегда. Если ничего не отмечено, запуск сразу падает, до CI и сборок.
 
 Запускайте его на `master`: кэш движка, который он сохраняет, достаётся всем следующим релизам, а кэш, сохранённый в другой ветке, — только ей. GitHub удаляет кэш, которым не пользовались 7 дней, поэтому релиз после долгого перерыва собирает движок заново, до часа.
 

@@ -10,32 +10,108 @@ on:
         description: SemVer version vX.Y.Z (vX.Y.Z-rc.N is a prerelease)
         required: true
         type: string
+      # Only the ticked archives are built and published; their runners alone start, CI's included.
+      darwin-universal:
+        description: macOS universal
+        type: boolean
+        default: true
+      darwin-arm64:
+        description: macOS arm64
+        type: boolean
+        default: true
+      darwin-amd64:
+        description: macOS amd64
+        type: boolean
+        default: true
+      linux-amd64:
+        description: Linux amd64
+        type: boolean
+        default: true
+      linux-arm64:
+        description: Linux arm64
+        type: boolean
+        default: true
+      windows-amd64:
+        description: Windows amd64
+        type: boolean
+        default: true
+      windows-arm64:
+        description: Windows arm64
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 jobs:
-  # A release is built only from a commit that passes CI.
-  ci:
-    uses: ./.github/workflows/ci.yml
-    with:
-      all-platforms: true
-
-  build:
-    needs: ci
-    strategy:
-      # A failed target must not cancel the engine build of the others: their cache would be lost.
-      fail-fast: false
-      matrix:
-        include:
+  # Checks the inputs before any runner starts and turns the ticked archives into the runners to start.
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      ci: ${{ steps.plan.outputs.ci }}
+    steps:
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          DARWIN_UNIVERSAL: ${{ inputs.darwin-universal }}
+          DARWIN_ARM64: ${{ inputs.darwin-arm64 }}
+          DARWIN_AMD64: ${{ inputs.darwin-amd64 }}
+          LINUX_AMD64: ${{ inputs.linux-amd64 }}
+          LINUX_ARM64: ${{ inputs.linux-arm64 }}
+          WINDOWS_AMD64: ${{ inputs.windows-amd64 }}
+          WINDOWS_ARM64: ${{ inputs.windows-arm64 }}
+        run: |
+          # A version is SemVer: v1.2.3 or v1.2.3-rc.1.
+          if ! echo "$VERSION" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'; then
+            echo "version $VERSION is not a SemVer version vX.Y.Z" >&2; exit 1
+          fi
+          # The tag appears when the release is published: an existing one means the version is out.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" >/dev/null 2>&1; then
+            echo "version $VERSION is already released; give a new one" >&2; exit 1
+          fi
           # gd builds a universal .app by default; GOARCH narrows it down to one architecture.
           # gd cross-compiles macOS and Windows with zig and an LLVM it downloads for the host, which
           # release.graphics.gd has no build of for darwin/amd64 and windows/arm64: those two targets are
           # built on the other architecture's runner.
-          - { runner: macos-15, goarchs: universal arm64 amd64 }
-          - { runner: ubuntu-24.04, goarchs: amd64 }
-          - { runner: ubuntu-24.04-arm, goarchs: arm64 }
-          - { runner: windows-2025, goarchs: amd64 arm64 }
+          build=
+          add() { [ -z "$2" ] || build="$build${build:+,}{\"runner\":\"$1\",\"goarchs\":\"${2# }\"}"; }
+          mac=; win=
+          [ "$DARWIN_UNIVERSAL" = true ] && mac="$mac universal"
+          [ "$DARWIN_ARM64" = true ] && mac="$mac arm64"
+          [ "$DARWIN_AMD64" = true ] && mac="$mac amd64"
+          [ "$WINDOWS_AMD64" = true ] && win="$win amd64"
+          [ "$WINDOWS_ARM64" = true ] && win="$win arm64"
+          add macos-15 "$mac"
+          [ "$LINUX_AMD64" = true ] && add ubuntu-24.04 amd64
+          [ "$LINUX_ARM64" = true ] && add ubuntu-24.04-arm arm64
+          add windows-2025 "$win"
+          [ -n "$build" ] || { echo "no platform is ticked: tick at least one" >&2; exit 1; }
+          # CI checks each ticked OS and architecture on its own runner; ubuntu-24.04 runs the linters every time.
+          ci='"ubuntu-24.04"'
+          case "$mac" in *universal*|*arm64*) ci="$ci,\"macos-26\"" ;; esac
+          case "$mac" in *universal*|*amd64*) ci="$ci,\"macos-15-intel\"" ;; esac
+          [ "$LINUX_ARM64" = true ] && ci="$ci,\"ubuntu-24.04-arm\""
+          [ "$WINDOWS_AMD64" = true ] && ci="$ci,\"windows-2025\""
+          [ "$WINDOWS_ARM64" = true ] && ci="$ci,\"windows-11-arm\""
+          echo "build=[$build]" | tee -a "$GITHUB_OUTPUT"
+          echo "ci=[$ci]" | tee -a "$GITHUB_OUTPUT"
+
+  # A release is built only from a commit that passes CI.
+  ci:
+    needs: plan
+    uses: ./.github/workflows/ci.yml
+    with:
+      runners: ${{ needs.plan.outputs.ci }}
+
+  build:
+    needs: [plan, ci]
+    strategy:
+      # A failed target must not cancel the engine build of the others: their cache would be lost.
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.build) }}
     runs-on: ${{ matrix.runner }}
     # A cold engine build takes up to an hour (windows-2025 builds two); a hung clone or scons must not
     # hold the runner for 6 hours.
@@ -52,26 +128,24 @@ jobs:
         id: meta
         env:
           VERSION: ${{ inputs.version }}
+          GOARCHS: ${{ matrix.goarchs }}
         run: |
           set -- cmd/*/graphics/project.godot
           [ $# -eq 1 ] && [ -e "$1" ] || { echo "expected exactly one cmd/<name>/graphics" >&2; exit 1; }
           echo "name=$(basename "$(dirname "$(dirname "$1")")")" >> "$GITHUB_OUTPUT"
-          # A version is SemVer: v1.2.3 or v1.2.3-rc.1.
-          if ! echo "$VERSION" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'; then
-            echo "version $VERSION is not a SemVer version vX.Y.Z" >&2; exit 1
-          fi
-          # The tag appears when the release is published: an existing one means the version is out.
-          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then
-            echo "version $VERSION is already released; give a new one" >&2; exit 1
-          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-      # gd keeps its tools (zig, LLVM, Python, scons, the Godot editor) and the built engine in ~/gd.
-      # A failed build leaves a partial cache for the next run to go on from (see the save steps below).
+          echo "engines=$(echo "$GOARCHS" | tr ' ' -)" >> "$GITHUB_OUTPUT"
+      # gd keeps its tools (zig, LLVM, Python, scons, the Godot editor) and the built engines in ~/gd.
+      # The key names the architectures built: a cache saved for fewer of them would never take the engines of
+      # the rest. Without its own, a run goes on from its partial cache (see the save steps below) or from the
+      # latest one of any other choice of architectures.
       - id: cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
-          key: gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}
-          restore-keys: gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}-partial-
+          key: gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}-${{ steps.meta.outputs.engines }}
+          restore-keys: |
+            gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}-${{ steps.meta.outputs.engines }}-partial-
+            gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}
           path: ~/gd
       # With vulkan=yes in engine/options gd links MoltenVK into the .app. Homebrew's has only the
       # runner's architecture, the universal .app needs both: the release goes where gd and scons look.
@@ -146,14 +220,14 @@ jobs:
       - if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
-          key: gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}
+          key: gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}-${{ steps.meta.outputs.engines }}
           path: ~/gd
       # A cache key never changes once saved: a failed build saved under the main key would keep a later
       # successful one from saving the whole engine, so it goes under a key of its own.
       - if: failure() && steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
-          key: gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}-partial-${{ github.run_id }}-${{ github.run_attempt }}
+          key: gd-${{ matrix.runner }}-${{ hashFiles('go.sum', 'cmd/*/graphics/project.godot') }}-${{ steps.meta.outputs.engines }}-partial-${{ github.run_id }}-${{ github.run_attempt }}
           path: ~/gd
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
@@ -165,6 +239,7 @@ jobs:
   # A release starts the engine only this way (it drops --headless). It is not in CI, where a cold LibGodot
   # build would hold a pull request: it runs alongside the builds, and the release waits for it.
   engine:
+    needs: plan
     runs-on: ubuntu-24.04
     # A cold LibGodot build takes up to an hour, later runs take it from the cache.
     timeout-minutes: 90
