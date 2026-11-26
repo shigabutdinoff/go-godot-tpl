@@ -1,16 +1,19 @@
 name: sync develop
 
-# Rebase and merge gives master new commits with the same files as develop. develop is moved onto them, so the
-# next pull request carries only new work. A develop with unmerged commits differs from master and is left as is.
+# Rebase and merge gives the default branch new commits with the same files as develop. develop is moved onto them,
+# so the next pull request carries only new work. A develop with unmerged commits differs from the default branch
+# and is left as is. push cannot name the default branch, so both usual names are listed; the job runs only on the
+# one that is the default.
 on:
   push:
-    branches: [master]
+    branches: [master, main]
 
 permissions:
   contents: write
 
 jobs:
   sync:
+    if: github.ref_name == github.event.repository.default_branch
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262

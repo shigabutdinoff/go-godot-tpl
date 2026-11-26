@@ -1,8 +1,8 @@
 name: release
 
 # Runs on request from the Actions tab on the chosen branch and publishes its commit as a GitHub Release of the
-# given version, tagging it. Run on master, it leaves the engine cache to every later release: a cache saved on a
-# tag would serve only that tag.
+# given version, tagging it. Run on the default branch, it leaves the engine cache to every later release: a cache
+# saved on a tag would serve only that tag.
 on:
   workflow_dispatch:
     inputs:

@@ -22,7 +22,7 @@ go doc ./internal/app    # dependencies, workers and the hooks
 
 ## Contributing
 
-Every task goes in its own branch from `master` and reaches `master` through a pull request after CI passes, so `master` holds only reviewed code. Before sending a pull request, run the same checks as CI:
+Every task goes in its own branch from the repository's default branch (`master` in the template, `main` or the name you chose in a game made by go-godot-kit) and reaches it through a pull request after CI passes, so the default branch holds only reviewed code. CI and the develop sync run on pushes to `master` or `main` only when it is the default branch; with another name, add it to `branches` in `ci.yml` and `sync-develop.yml`. Before sending a pull request, run the same checks as CI:
 
 ```shell
 golangci-lint fmt                                  # gofmt and goimports
@@ -70,16 +70,16 @@ Rename `cmd/game` and change `Name` and `EnvPrefix` in `main.go`. The release wo
 
 ### Release builds
 
-Run the **release** workflow from the Actions tab on `master` with a version: a SemVer `vX.Y.Z`, or `vX.Y.Z-rc.1` for a prerelease that never turns Latest; any other value, or a version already released, fails at once. It runs CI on the commit first, builds only if CI passes, then publishes a GitHub Release and tags the commit with the version:
+Run the **release** workflow from the Actions tab on the default branch with a version: a SemVer `vX.Y.Z`, or `vX.Y.Z-rc.1` for a prerelease that never turns Latest; any other value, or a version already released, fails at once. It runs CI on the commit first, builds only if CI passes, then publishes a GitHub Release and tags the commit with the version:
 
 ```shell
-gh workflow run release.yml --ref master -f version=v1.2.3
-gh workflow run release.yml --ref master -f version=v1.2.4 -f linux-arm64=false -f windows-arm64=false
+gh workflow run release.yml -f version=v1.2.3
+gh workflow run release.yml -f version=v1.2.4 -f linux-arm64=false -f windows-arm64=false
 ```
 
 Each of the seven archives has its own tick: `darwin-universal`, `darwin-arm64`, `darwin-amd64`, `linux-amd64`, `linux-arm64`, `windows-amd64`, `windows-arm64`. All are ticked by default. Only the ticked ones are built and published, and only their runners start, CI's included: macOS on macos-26 (arm64, universal) and macos-15-intel (amd64, universal), the others on the runner of their OS and architecture. CI's ubuntu-24.04 with the linters and the `engine` job run every time. With nothing ticked the run fails at once, before CI and the builds start.
 
-Run it on `master`: the engine cache it saves serves every later release, while a cache saved elsewhere serves only that branch. GitHub drops a cache unused for 7 days, so a release after a longer pause builds the engine anew, up to an hour.
+Without `--ref`, `gh` runs it on the default branch. Run it there: the engine cache it saves serves every later release, while a cache saved elsewhere serves only that branch. GitHub drops a cache unused for 7 days, so a release after a longer pause builds the engine anew, up to an hour.
 
 The release stays a draft until every archive is uploaded. A rerun after a failed run replaces the draft's archives; a published version never changes, so a fix goes out under a new version. To roll back, download the previous version from the Releases page.
 
