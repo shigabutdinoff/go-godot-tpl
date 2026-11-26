@@ -1,10 +1,11 @@
 name: ci
 
 on:
-  # Code is checked in its pull request. On master CI runs only to fill the cache that every branch reads:
-  # its keys follow go.sum and the Go version in go.mod.
+  # Code is checked in its pull request. On the default branch CI runs only to fill the cache that every branch
+  # reads: its keys follow go.sum and the Go version in go.mod. push cannot name the default branch, so both usual
+  # names are listed; the job runs only on the one that is the default.
   push:
-    branches: [master]
+    branches: [master, main]
     paths: [go.mod, go.sum]
   pull_request:
   # release runs CI on its commit before building, on the runners of the platforms it builds for.
@@ -16,16 +17,17 @@ on:
 permissions:
   contents: read
 
-# A new push to a pull request cancels its previous run. Every master commit is checked to the end.
+# A new push to a pull request cancels its previous run. Every default branch commit is checked to the end.
 # Called from release, github.workflow is "release": its CI never cancels or is cancelled by this one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
 
 jobs:
-  # A pull request and master are checked on one Linux runner in minutes; release adds the runners of the
-  # platforms it builds for (macos-26, macos-15-intel, ubuntu-24.04-arm, windows-2025, windows-11-arm).
+  # A pull request and the default branch are checked on one Linux runner in minutes; release adds the runners of
+  # the platforms it builds for (macos-26, macos-15-intel, ubuntu-24.04-arm, windows-2025, windows-11-arm).
   check:
+    if: github.event_name != 'push' || github.ref_name == github.event.repository.default_branch
     strategy:
       matrix:
         runner: ${{ fromJSON(inputs.runners || '["ubuntu-24.04"]') }}
